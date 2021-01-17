@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    JBoss, Home of Professional Open Source
+    Copyright 2014, Red Hat, Inc. and/or its affiliates, and individual
+    contributors by the @authors tag. See the copyright.txt in the
+    distribution for a full listing of individual contributors.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+-->
+<!--
+   This is the OSGi Blueprint XML file defining the Camel context and routes.  
+
+   Because the file is in the OSGI-INF/blueprint directory inside our JAR, it 
+   will be automatically activated as soon as the bundle is installed.
+
+   The root element for any OSGi Blueprint file is 'blueprint' - you also see 
+   the namespace definitions for both the Blueprint and the Camel namespaces.
+-->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+    xmlns:ext="http://aries.apache.org/blueprint/xmlns/blueprint-ext/v1.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+    xsi:schemaLocation="         
+    	http://www.osgi.org/xmlns/blueprint/v1.0.0          https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd">
+
+    <!-- 
+      blueprint property placeholders, that will use etc/camel.activemq.blueprint.cfg 
+      as the properties file with content like.       
+        amq.url      = ${activemq.url}
+        amq.username = ${activemq.username}
+        amq.password = ${activemq.password}
+    -->
+    <cm:property-placeholder id="camel.activemq.blueprint" persistent-id="camel.activemq.blueprint">
+        <cm:default-properties>
+        	<!-- A-MQ Properties -->
+<!--             <cm:property name="broker.url" value="vm://localhost?broker.persistent=false"/> -->
+            <cm:property name="broker.url" value="tcp://rhel7-localdomain:61617"/>
+            <cm:property name="broker.username" value="admin"/>
+            <cm:property name="broker.password" value="admin"/>
+            <!-- WMQ Properties -->
+			<cm:property name="wmq.port" value="1712"/>
+			<cm:property name="wmq.host" value="wmq-host(1712)"/>
+			<cm:property name="wmq.queue.manager" value="WMQ_QUEUE_MANAGER"/>
+			<cm:property name="wmq.channel" value="WMQ_CHANNEL"/>
+			<cm:property name="wmq.user" value="WMQ_USER"/>
+			<cm:property name="wmq.pwd" value="WMQ_PASSWORD"/>
+        </cm:default-properties>
+    </cm:property-placeholder>
+    
+    <!-- Beans -->
+    <bean id="idGenerator" class="com.redhat.fuse.demo.beans.IdGeneratorBean" />
+    
+    <!-- 
+         Lets connect the Camel ActiveMQ component to the broker.
+    -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="activemq">
+        <property name="brokerURL" value="${broker.url}"/>
+        <property name="userName" value="${broker.username}"/>
+        <property name="password" value="${broker.password}"/>
+        <property name="usePooledConnection" value="false"/>
+    </bean>
+    
+	<!-- WMQ -->
+	<bean id="wmqConnectionFactory" class="com.ibm.mq.jms.MQQueueConnectionFactory">
+		<property name="transportType" value="1" />
+		<property name="connectionNameList" value="${wmq.host}" />
+		<property name="queueManager" value="${wmq.queue.manager}" />
+		<property name="channel" value="${wmq.channel}" />
+		<property name="useConnectionPooling" value="true" />
+	</bean>
+	<bean id="wmqSecureConnectionFactory" class="org.springframework.jms.connection.UserCredentialsConnectionFactoryAdapter">
+		<property name="targetConnectionFactory" ref="wmqConnectionFactory" />
+		<property name="username" value="${wmq.user}" />
+		<property name="password" value="${wmq.pwd}" />
+	</bean>
+	<bean id="wmq" class="org.apache.camel.component.jms.JmsComponent">
+		<property name="deliveryPersistent" value="false" />
+		<property name="connectionFactory" ref="wmqSecureConnectionFactory" />
+	</bean>
+    
+    <camelContext id="amq-wmq-example-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- WMQ Routes -->
+        <route id="wmq-put-msg" autoStartup="false">
+        	<from uri="timer:wmw?period=60s"/>
+			<setBody id="wmq-generate-id">
+                <method ref="idGenerator" method="generateNewID"/>
+            </setBody>
+            <transform><simple>WMQ-${body}</simple></transform>
+        	<log message="Sending message to WMQ: ${body}"/>
+        	<to uri="wmq:WMQ_QUEUE_TEST"/>
+        </route>
+        
+        <route id="wmq-get-msg" autoStartup="false">
+        	<from uri="wmq:WMQ_QUEUE_TEST"/>
+        	<log message="Message from WMQ: ${body}"/>
+        	<log message="Sending message to AMQ: ${body}"/>
+        	<to uri="activemq:queue:AMQ_QUEUE_TEST"/>
+        </route>
+        
+        <!-- AMQ Routes -->
+        <route id="amq-get-msg">
+        	<from uri="activemq:queue:AMQ_QUEUE_TEST"/>
+        	<log message="Message from AMQ: ${body}"/>
+        </route>
+
+        <route id="amq-put-msg">
+        	<from uri="timer:wmw?period=60s"/>
+			<setBody id="amq-generate-id">
+                <method ref="idGenerator" method="generateNewID"/>
+            </setBody>
+            <transform><simple>AMQ-${body}</simple></transform>
+        	<log message="Sending message to AMQ: ${body}"/>
+        	<to uri="activemq:queue:AMQ_QUEUE_TEST"/>
+        </route>
+    </camelContext>
+</blueprint>
