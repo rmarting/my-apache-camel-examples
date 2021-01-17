@@ -1,0 +1,9 @@
+/.settings/
+/.classpath
+/target/
+/.project
+/.metadata
+/RemoteSystemsTempFiles/
+/camel-amq-consumer/.project
+/camel-amq-forwarder/.project
+/camel-amq-producer/.project
